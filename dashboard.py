@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
+
 # Load the dataset
 df = pd.read_csv("kenya_primary_schools_updated.csv")
 
