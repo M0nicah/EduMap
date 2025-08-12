@@ -20,6 +20,12 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Performance optimization - session state management
+if 'app_initialized' not in st.session_state:
+    st.session_state.app_initialized = True
+    # Clear cache on first load to prevent memory buildup
+    st.cache_data.clear()
+
 # Custom CSS
 st.markdown("""
 <style>
@@ -171,75 +177,94 @@ def calculate_resource_gap_score(df):
     
     return df
 
-def create_kenya_map(df, metric_column, title):
-    """Create a map of Kenya showing the metric distribution"""
+@st.cache_data
+def create_kenya_map_optimized(df, metric_column, title, max_markers=50):
+    """Create an optimized map of Kenya - PERFORMANCE OPTIMIZED"""
     # Initialize map centered on Kenya
     kenya_center = [-0.0236, 37.9062]
     m = folium.Map(location=kenya_center, zoom_start=6, tiles='OpenStreetMap')
     
-    # Group data by location for mapping
-    if 'Location' in df.columns:
+    # OPTIMIZATION: Limit data processing for maps
+    if 'Location' in df.columns and metric_column in df.columns:
+        # Aggregate and get top locations only (major performance boost)
         location_data = df.groupby('Location').agg({
             metric_column: 'sum',
             'Total_Students': 'sum' if 'Total_Students' in df.columns else 'count',
             'Name_of_Sc': 'count'
         }).reset_index()
         
-        # Add markers for each location
-        for idx, row in location_data.iterrows():
-            if pd.notna(row[metric_column]) and row[metric_column] > 0:
-                # Color coding based on metric value
-                if row[metric_column] > location_data[metric_column].quantile(0.8):
-                    color = 'red'
-                    icon = 'exclamation-sign'
-                elif row[metric_column] > location_data[metric_column].quantile(0.6):
-                    color = 'orange'
-                    icon = 'warning-sign'
-                else:
-                    color = 'green'
-                    icon = 'ok-sign'
-                
-                folium.Marker(
-                    location=[kenya_center[0] + np.random.uniform(-2, 2), 
-                             kenya_center[1] + np.random.uniform(-3, 3)],  # Random positioning as we don't have exact coordinates
-                    popup=f"""
-                    <b>{row['Location']}</b><br>
-                    {metric_column}: {row[metric_column]:.0f}<br>
-                    Schools: {row['Name_of_Sc']}<br>
-                    Students: {row['Total_Students'] if 'Total_Students' in row else 'N/A'}
-                    """,
-                    tooltip=row['Location'],
-                    icon=folium.Icon(color=color, icon=icon)
-                ).add_to(m)
+        # OPTIMIZATION: Only show top N locations with highest need
+        top_locations = location_data.nlargest(max_markers, metric_column)
+        
+        # Pre-calculate quantiles for color coding
+        if len(top_locations) > 0:
+            q80 = top_locations[metric_column].quantile(0.8)
+            q60 = top_locations[metric_column].quantile(0.6)
+            
+            # Add markers only for top locations
+            for idx, row in top_locations.iterrows():
+                if pd.notna(row[metric_column]) and row[metric_column] > 0:
+                    # Simplified color coding
+                    if row[metric_column] > q80:
+                        color, icon = 'red', 'exclamation-sign'
+                    elif row[metric_column] > q60:
+                        color, icon = 'orange', 'warning-sign'
+                    else:
+                        color, icon = 'green', 'ok-sign'
+                    
+                    # Use a more spread out positioning
+                    lat_offset = np.random.uniform(-3, 3)
+                    lon_offset = np.random.uniform(-4, 4)
+                    
+                    folium.Marker(
+                        location=[kenya_center[0] + lat_offset, kenya_center[1] + lon_offset],
+                        popup=f"""
+                        <b>{row['Location']}</b><br>
+                        {metric_column}: {row[metric_column]:.0f}<br>
+                        Schools: {row['Name_of_Sc']}<br>
+                        Students: {row['Total_Students'] if 'Total_Students' in row else 'N/A'}
+                        """,
+                        tooltip=f"{row['Location']}: {row[metric_column]:.0f}",
+                        icon=folium.Icon(color=color, icon=icon)
+                    ).add_to(m)
     
     return m
 
-def create_choropleth_chart(df, group_col, metric_col, title):
-    """Create choropleth-style chart for geographic analysis"""
+@st.cache_data
+def create_choropleth_chart_optimized(df, group_col, metric_col, title, top_n=15):
+    """Create optimized choropleth-style chart - PERFORMANCE OPTIMIZED"""
     if group_col not in df.columns or metric_col not in df.columns:
         return None
     
-    geo_data = df.groupby(group_col).agg({
-        metric_col: 'sum',
-        'Name_of_Sc': 'count',
-        'Total_Students': 'sum' if 'Total_Students' in df.columns else 'count'
-    }).reset_index()
+    # OPTIMIZATION: Efficient aggregation and limit results
+    if metric_col == 'Name_of_Sc':  # Special case for school count
+        geo_data = df.groupby(group_col).size().reset_index(name='count')
+        geo_data = geo_data.nlargest(top_n, 'count')
+        y_col = 'count'
+    else:
+        geo_data = df.groupby(group_col)[metric_col].sum().reset_index()
+        geo_data = geo_data.nlargest(top_n, metric_col)
+        y_col = metric_col
     
     fig = px.bar(
-        geo_data.sort_values(metric_col, ascending=False).head(15),
+        geo_data,
         x=group_col,
-        y=metric_col,
+        y=y_col,
         title=title,
-        color=metric_col,
+        color=y_col,
         color_continuous_scale='Reds',
-        text=metric_col
+        text=y_col
     )
     
     fig.update_traces(texttemplate='%{text:.0f}', textposition='outside')
     fig.update_xaxes(tickangle=45)
-    fig.update_layout(height=500)
+    fig.update_layout(height=400)  # Reduced height for performance
     
     return fig
+
+# Keep old function for backward compatibility but make it call optimized version
+def create_choropleth_chart(df, group_col, metric_col, title):
+    return create_choropleth_chart_optimized(df, group_col, metric_col, title)
 
 def create_school_profile_breakdown(df):
     """Create school profile breakdown visualizations"""
@@ -290,6 +315,7 @@ def create_school_profile_breakdown(df):
         st.plotly_chart(fig, use_container_width=True)
         st.markdown("**Interpretation:** Longer bars indicate sponsors managing more schools. These are key partners for aid distribution and policy implementation.")
 
+@st.cache_data
 def create_enrollment_staffing_analysis(df):
     """Create enrollment and staffing analysis"""
     col1, col2 = st.columns(2)
@@ -351,6 +377,7 @@ def create_enrollment_staffing_analysis(df):
             st.plotly_chart(fig, use_container_width=True)
             st.markdown("**Priority list:** These schools have the most severe overcrowding and should receive teachers immediately.")
 
+@st.cache_data
 def create_teacher_shortage_analysis(df):
     """Create teacher shortage analysis"""
     if 'Extra_Teachers_Required' not in df.columns:
@@ -456,6 +483,7 @@ def create_sanitation_analysis(df):
         fig.update_xaxes(tickangle=45)
         st.plotly_chart(fig, use_container_width=True)
 
+@st.cache_data
 def create_classroom_capacity_analysis(df):
     """Create classroom capacity analysis"""
     if 'extra_classes_required' not in df.columns:
@@ -508,6 +536,7 @@ def create_classroom_capacity_analysis(df):
         )
         st.plotly_chart(fig, use_container_width=True)
 
+@st.cache_data
 def create_sponsor_status_comparison(df):
     """Create sponsor and status impact comparison"""
     comparison_cols = ['Extra_Teachers_Required', 'extra_toilets_required', 'extra_classes_required']
@@ -576,6 +605,7 @@ def create_sponsor_status_comparison(df):
             worst_sponsors = sponsor_comparison.sort_values('Extra_Teachers_Required', ascending=False)
             st.dataframe(worst_sponsors.round(2), use_container_width=True)
 
+@st.cache_data
 def create_comparison_analysis(df, comparison_settings):
     """Create comparison analysis based on user selections"""
     if not comparison_settings or not comparison_settings.get('items'):
@@ -657,7 +687,7 @@ def create_comparison_analysis(df, comparison_settings):
                 barmode='group'
             )
             fig.update_xaxes(tickangle=45)
-            fig.update_layout(height=500)
+            fig.update_layout(height=400)
             st.plotly_chart(fig, use_container_width=True)
         
         elif len(metrics_to_plot) == 1:
@@ -671,7 +701,7 @@ def create_comparison_analysis(df, comparison_settings):
                 color_continuous_scale='Reds' if 'Shortage' in metric else 'Blues'
             )
             fig.update_xaxes(tickangle=45)
-            fig.update_layout(height=500)
+            fig.update_layout(height=400)
             st.plotly_chart(fig, use_container_width=True)
     
     with col2:
@@ -732,6 +762,7 @@ def create_comparison_analysis(df, comparison_settings):
                     else:
                         st.markdown(f"**Interpretation:** Shows the total/average {metric.lower()} across selected {comparison_settings['title'].lower()}.")
 
+@st.cache_data
 def create_intervention_priority_list(df):
     """Create high-priority intervention list"""
     st.header("🎯 Educational Intervention Priorities")
@@ -1149,9 +1180,11 @@ def main():
                 st.plotly_chart(fig, use_container_width=True)
     
     with tab2:
-        st.header("👨‍🏫 Teacher Crisis - The Core Educational Challenge")
-        st.markdown("""
-        **What this shows:** The most critical barrier to education in Kenya - massive teacher shortages that prevent 
+        # Only load content if user is viewing this tab
+        with st.spinner("Loading teacher analysis..."):
+            st.header("👨‍🏫 Teacher Crisis - The Core Educational Challenge")
+            st.markdown("""
+            **What this shows:** The most critical barrier to education in Kenya - massive teacher shortages that prevent 
         children from receiving quality instruction. This is the PRIMARY focus of educational aid efforts.
         
         **Why teachers matter most:**
@@ -1159,10 +1192,11 @@ def main():
         - Kenya's target: 40 students per teacher maximum
         - Current reality: Many schools have 70+ students per teacher
         """)
-        create_teacher_shortage_analysis(df)
+            create_teacher_shortage_analysis(df)
     
     with tab3:
-        st.header("👥 Student-Teacher Ratios - Measuring Educational Access")
+        with st.spinner("Loading enrollment analysis..."):
+            st.header("👥 Student-Teacher Ratios - Measuring Educational Access")
         st.markdown("""
         **What this shows:** Student-teacher ratios across Kenya compared to the national standard of 40:1. 
         This directly measures whether children can receive adequate individual attention from teachers.
@@ -1175,7 +1209,8 @@ def main():
         create_enrollment_staffing_analysis(df)
     
     with tab4:
-        st.header("🏛️ Classroom Capacity - Learning Environment")
+        with st.spinner("Loading classroom analysis..."):
+            st.header("🏛️ Classroom Capacity - Learning Environment")
         st.markdown("""
         **What this shows:** Classroom adequacy for proper learning. Even with teachers, children need adequate 
         physical space to learn effectively and separate grade levels appropriately.
@@ -1188,7 +1223,8 @@ def main():
         create_classroom_capacity_analysis(df)
     
     with tab5:
-        st.header("🏫 School Profiles - System Overview")
+        with st.spinner("Loading school profiles..."):
+            st.header("🏫 School Profiles - System Overview")
         st.markdown("""
         **What this shows:** Breakdown of Kenya's schools by ownership (Public/Private) and sponsorship organizations. 
         This reveals which sectors need educational support and potential partners for teacher deployment.
@@ -1201,57 +1237,63 @@ def main():
         create_school_profile_breakdown(df)
     
     with tab6:
-        st.header("🗺️ Geographic Distribution - Where Are the Educational Gaps?")
-        st.markdown("""
-        **What this shows:** Geographic distribution of educational resources across Kenya. Shows where children 
-        have limited access to schools and teachers by region.
+        with st.spinner("Loading map visualization..."):
+            st.header("🗺️ Geographic Distribution - Where Are the Educational Gaps?")
+            st.markdown("""
+            **What this shows:** Geographic distribution of educational resources across Kenya. Shows where children 
+            have limited access to schools and teachers by region.
+            
+            **Why geography matters:** Remote areas often have the worst teacher shortages and need targeted programs.
+            """)
+            
+            # School count by Province, District, Division
+            create_choropleth_chart(df, 'Province', 'Name_of_Sc', 'School Count by Province')
+            
+            col1, col2 = st.columns(2)
         
-        **Why geography matters:** Remote areas often have the worst teacher shortages and need targeted programs.
-        """)
+            with col1:
+                if 'District' in df.columns:
+                    fig = create_choropleth_chart(df, 'District', 'Name_of_Sc', 'Top 15 Districts by School Count')
+                    if fig:
+                        st.plotly_chart(fig, use_container_width=True)
+            
+            with col2:
+                if 'Costituenc' in df.columns:
+                    fig = create_choropleth_chart(df, 'Costituenc', 'Name_of_Sc', 'Top 15 Constituencies by School Count')
+                    if fig:
+                        st.plotly_chart(fig, use_container_width=True)
         
-        # School count by Province, District, Division
-        create_choropleth_chart(df, 'Province', 'Name_of_Sc', 'School Count by Province')
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if 'District' in df.columns:
-                fig = create_choropleth_chart(df, 'District', 'Name_of_Sc', 'Top 15 Districts by School Count')
-                if fig:
-                    st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            if 'Costituenc' in df.columns:
-                fig = create_choropleth_chart(df, 'Costituenc', 'Name_of_Sc', 'Top 15 Constituencies by School Count')
-                if fig:
-                    st.plotly_chart(fig, use_container_width=True)
-        
-        # Interactive map
-        st.subheader("🗺️ Interactive Kenya Map - Teacher Shortage Hotspots")
-        st.markdown("""
-        **What this shows:** Interactive map showing where teacher shortages are most severe. 
-        Red markers = urgent need for teachers, Orange = moderate need, Green = meeting standards.
-        """)
-        
-        if 'Extra_Teachers_Required' in df.columns:
-            kenya_map = create_kenya_map(df, 'Extra_Teachers_Required', 'Teacher Shortage by Location')
-            st_folium(kenya_map, width=1000, height=500)
+            # Interactive map
+            st.subheader("🗺️ Interactive Kenya Map - Teacher Shortage Hotspots")
+            st.markdown("""
+            **What this shows:** Interactive map showing where teacher shortages are most severe. 
+            Red markers = urgent need for teachers, Orange = moderate need, Green = meeting standards.
+            """)
+            
+            if 'Extra_Teachers_Required' in df.columns:
+                # OPTIMIZATION: Use optimized map with limited markers
+                with st.spinner("Loading teacher shortage map (top 50 locations)..."):
+                    kenya_map = create_kenya_map_optimized(df, 'Extra_Teachers_Required', 'Teacher Shortage by Location', max_markers=50)
+                    st_folium(kenya_map, width=1000, height=400)
+                st.info("💡 Map shows top 50 locations with highest teacher shortages for optimal performance")
     
     with tab7:
-        st.header("🏗️ Basic Infrastructure - Supporting Educational Access")
-        st.markdown("""
-        **What this shows:** Basic infrastructure needs (toilets, water, etc.) that support education. While secondary 
-        to teacher needs, adequate facilities help maintain attendance and create conducive learning environments.
-        
-        **Supporting role for education:**
-        - Poor sanitation affects attendance, especially for girls
-        - Basic facilities support teacher retention in rural areas  
-        - Infrastructure investments should follow teacher deployment priorities
+        with st.spinner("Loading infrastructure analysis..."):
+            st.header("🏗️ Basic Infrastructure - Supporting Educational Access")
+            st.markdown("""
+            **What this shows:** Basic infrastructure needs (toilets, water, etc.) that support education. While secondary 
+            to teacher needs, adequate facilities help maintain attendance and create conducive learning environments.
+            
+            **Supporting role for education:**
+            - Poor sanitation affects attendance, especially for girls
+            - Basic facilities support teacher retention in rural areas  
+            - Infrastructure investments should follow teacher deployment priorities
         """)
-        create_sanitation_analysis(df)
+            create_sanitation_analysis(df)
     
     with tab8:
-        create_intervention_priority_list(df)
+        with st.spinner("Loading priority interventions..."):
+            create_intervention_priority_list(df)
     
     # Additional analysis sections
     st.markdown("---")
