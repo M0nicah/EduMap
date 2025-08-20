@@ -117,23 +117,39 @@ with col2:
 
 st.divider()
 
-# SECTION 2: CRITICAL SCHOOLS
-st.markdown('<a name="critical-schools"></a>', unsafe_allow_html=True)
-st.header("🚨 Critical Schools Needing Immediate Attention")
-st.markdown("*Schools with the highest resource shortages that require urgent intervention*")
 
-# Critical alert
-critical = len(filtered_df[filtered_df['Extra_Teachers_Required'] > 15])
-if critical > 0:
-    st.error(f"🚨 **URGENT:** {critical} schools need 15+ teachers immediately!")
-else:
-    st.success("✅ No schools in critical teacher shortage state")
 
-# Most critical schools
-st.subheader("🎯 Top 10 Most Critical Schools")
-priority = filtered_df.nlargest(10, 'Priority')[['Name_of_Sc', 'District', 'Priority', 'Extra_Teachers_Required', 'extra_toilets_required']]
-st.dataframe(priority, use_container_width=True)
-st.caption("💡 These schools have the highest combined resource needs and should be prioritized for aid")
+# SECTION 2: GEOGRAPHIC INSIGHTS
+st.markdown('<a name="geographic-insights"></a>', unsafe_allow_html=True)
+st.header("🗺️ Geographic Distribution & Insights")
+st.markdown("*Understanding regional patterns and geographic distribution of schools*")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    st.subheader("Public vs Private Distribution")
+    private_vs_public = filtered_df.groupby('Status')['School_ID'].count().reset_index()
+    private_vs_public.columns = ['Status','Number_of_Schools']
+    
+    fig, ax = plt.subplots(figsize=(6, 6))
+    ax.pie(private_vs_public['Number_of_Schools'],
+           labels=private_vs_public['Status'],
+           autopct='%1.1f%%',
+           colors=['#ff6b6b', '#4ecdc4'])
+    ax.set_title('School Type Distribution')
+    st.pyplot(fig)
+    
+    # Insight box
+    public_pct = (private_vs_public[private_vs_public['Status'] == 'PUBLIC']['Number_of_Schools'].iloc[0] / 
+                  private_vs_public['Number_of_Schools'].sum() * 100)
+    st.info(f"📊 {public_pct:.1f}% of schools are public, serving the majority of students")
+
+with col2:
+    st.subheader("Top Areas by Student Population")
+    top_locations = filtered_df.groupby('Location')['Total_Students'].sum().nlargest(10).reset_index()
+    top_locations.columns = ['Location','Student_Population']
+    st.bar_chart(top_locations.set_index('Location'), color="#4ecdc4")
+    st.caption("💡 These locations have the highest total student enrollment")
 
 st.divider()
 
@@ -173,37 +189,19 @@ if len(province_avg) > 0:
 
 st.divider()
 
-# SECTION 4: GEOGRAPHIC INSIGHTS
-st.markdown('<a name="geographic-insights"></a>', unsafe_allow_html=True)
-st.header("🗺️ Geographic Distribution & Insights")
-st.markdown("*Understanding regional patterns and geographic distribution of schools*")
+# RESOURCE GAP ANALYSIS
+st.header("📈 Resource Gap Analysis")
 
-col1, col2 = st.columns(2)
+# Resource needs by district
+st.subheader("Resource Needs by Top Districts")
+resource_by_district = filtered_df.groupby('District').agg({
+    'Extra_Teachers_Required': 'sum',
+    'extra_toilets_required': 'sum', 
+    'extra_classes_required': 'sum'
+}).nlargest(10, 'Extra_Teachers_Required')
 
-with col1:
-    st.subheader("Public vs Private Distribution")
-    private_vs_public = filtered_df.groupby('Status')['School_ID'].count().reset_index()
-    private_vs_public.columns = ['Status','Number_of_Schools']
-    
-    fig, ax = plt.subplots(figsize=(6, 6))
-    ax.pie(private_vs_public['Number_of_Schools'],
-           labels=private_vs_public['Status'],
-           autopct='%1.1f%%',
-           colors=['#ff6b6b', '#4ecdc4'])
-    ax.set_title('School Type Distribution')
-    st.pyplot(fig)
-    
-    # Insight box
-    public_pct = (private_vs_public[private_vs_public['Status'] == 'PUBLIC']['Number_of_Schools'].iloc[0] / 
-                  private_vs_public['Number_of_Schools'].sum() * 100)
-    st.info(f"📊 {public_pct:.1f}% of schools are public, serving the majority of students")
-
-with col2:
-    st.subheader("Top Areas by Student Population")
-    top_locations = filtered_df.groupby('Location')['Total_Students'].sum().nlargest(10).reset_index()
-    top_locations.columns = ['Location','Student_Population']
-    st.bar_chart(top_locations.set_index('Location'), color="#4ecdc4")
-    st.caption("💡 These locations have the highest total student enrollment")
+resource_by_district.columns = ['Teachers', 'Toilets', 'Classrooms']
+st.bar_chart(resource_by_district, color=['#ff6b6b', '#4ecdc4', '#45b7d1'])
 
 st.divider()
 
@@ -270,21 +268,7 @@ with col2:
 
 st.divider()
 
-# RESOURCE GAP ANALYSIS
-st.header("📈 Resource Gap Analysis")
 
-# Resource needs by district
-st.subheader("Resource Needs by Top Districts")
-resource_by_district = filtered_df.groupby('District').agg({
-    'Extra_Teachers_Required': 'sum',
-    'extra_toilets_required': 'sum', 
-    'extra_classes_required': 'sum'
-}).nlargest(10, 'Extra_Teachers_Required')
-
-resource_by_district.columns = ['Teachers', 'Toilets', 'Classrooms']
-st.bar_chart(resource_by_district, color=['#ff6b6b', '#4ecdc4', '#45b7d1'])
-
-st.divider()
 
 # GEOGRAPHIC DISTRIBUTION
 st.header("🗺️ Geographic Distribution")
@@ -357,6 +341,27 @@ ax.set_title('Distribution of Teacher Shortages')
 plt.xticks(rotation=45, ha='right')
 plt.tight_layout()
 st.pyplot(fig)
+
+st.divider()
+
+# SECTION 5: CRITICAL SCHOOLS
+st.markdown('<a name="critical-schools"></a>', unsafe_allow_html=True)
+st.header("🚨 Critical Schools Needing Immediate Attention")
+st.markdown("*Schools with the highest resource shortages that require urgent intervention*")
+
+# Critical alert
+critical = len(filtered_df[filtered_df['Extra_Teachers_Required'] > 15])
+if critical > 0:
+    st.error(f"🚨 **URGENT:** {critical} schools need 15+ teachers immediately!")
+else:
+    st.success("✅ No schools in critical teacher shortage state")
+
+
+# Most critical schools
+st.subheader("🎯 Top 10 Most Critical Schools")
+priority = filtered_df.nlargest(10, 'Priority')[['Name_of_Sc', 'District', 'Priority', 'Extra_Teachers_Required', 'extra_toilets_required']]
+st.dataframe(priority, use_container_width=True)
+st.caption("💡 These schools have the highest combined resource needs and should be prioritized for aid")
 
 st.divider()
 
