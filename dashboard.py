@@ -153,10 +153,6 @@ with col2:
 
 st.divider()
 
-# SECTION 3: PRIORITY ANALYSIS  
-st.markdown('<a name="priority-analysis"></a>', unsafe_allow_html=True)
-st.header("🎯 Priority Analysis")
-st.markdown("*Understanding which schools and districts need the most help*")
 
 # District comparison results
 if d1 and d2 and d1 != d2:
@@ -175,22 +171,54 @@ if d1 and d2 and d1 != d2:
     
     st.caption("💡 Compare two districts to see which needs more resources")
 
-# Province priority overview
-st.subheader("🗺️ Priority Levels by Province")
-province_avg = filtered_df.groupby('Province')['Priority'].mean().sort_values(ascending=False)
-st.bar_chart(province_avg, color='#ff6b6b')
-st.caption("💡 Higher bars indicate provinces with greater resource needs")
-
-# Key insight box
-if len(province_avg) > 0:
-    highest_province = province_avg.index[0]
-    highest_score = province_avg.iloc[0]
-    st.info(f"📍 **{highest_province}** province has the highest average priority score ({highest_score:.1f})")
-
-st.divider()
 
 # RESOURCE GAP ANALYSIS
 st.header("📈 Resource Gap Analysis")
+
+# Teacher shortage heatmap by district
+st.subheader("🗺️ Teacher Shortage Heatmap by District")
+st.markdown("*Visual representation of which districts need immediate teacher deployment*")
+
+# Prepare data for heatmap
+district_shortage = filtered_df.groupby('District').agg({
+    'Extra_Teachers_Required': 'sum',
+    'Total_Students': 'sum',
+    'Total_Teachers': 'sum',
+    'School_ID': 'count'
+}).reset_index()
+
+# Calculate shortage intensity (teachers needed per 100 students)
+district_shortage['Shortage_Intensity'] = (district_shortage['Extra_Teachers_Required'] / district_shortage['Total_Students']) * 100
+district_shortage['Avg_Student_Teacher_Ratio'] = district_shortage['Total_Students'] / district_shortage['Total_Teachers']
+
+# Create heatmap using plotly
+fig_heatmap = px.treemap(district_shortage.nlargest(15, 'Extra_Teachers_Required'),
+                        path=['District'], 
+                        values='Extra_Teachers_Required',
+                        color='Shortage_Intensity',
+                        color_continuous_scale='Reds',
+                        title='Teacher Shortage by District (Size = Total Need, Color = Intensity)')
+
+fig_heatmap.update_layout(height=500, font_size=12)
+st.plotly_chart(fig_heatmap, use_container_width=True)
+
+# Heatmap insights
+col1, col2 = st.columns(2)
+with col1:
+    most_critical = district_shortage.loc[district_shortage['Extra_Teachers_Required'].idxmax()]
+    st.error(f"🚨 **{most_critical['District']}** needs the most teachers: {most_critical['Extra_Teachers_Required']:.0f} teachers")
+
+with col2:
+    highest_intensity = district_shortage.loc[district_shortage['Shortage_Intensity'].idxmax()]
+    st.warning(f"⚠️ **{highest_intensity['District']}** has highest shortage intensity: {highest_intensity['Shortage_Intensity']:.1f} teachers needed per 100 students")
+
+st.info("""
+📊 **Heatmap Guide:**
+- **Size of blocks:** Total number of teachers needed in each district
+- **Color intensity:** Teachers needed per 100 students (shortage severity)
+- **Red districts:** Require immediate intervention
+- **Use for:** Prioritizing teacher deployment and resource allocation
+""")
 
 # Resource needs by district
 st.subheader("Resource Needs by Top Districts")
@@ -238,6 +266,25 @@ with tab3:
     schools_needing_classes = len(filtered_df[filtered_df['extra_classes_required'] > 0])
     st.warning(f"🏫 {schools_needing_classes} schools need additional classrooms")
 
+# SECTION 3: PRIORITY ANALYSIS  
+st.markdown('<a name="priority-analysis"></a>', unsafe_allow_html=True)
+st.header("🎯 Priority Analysis")
+st.markdown("*Understanding which province need the most help*")
+
+# Province priority overview
+st.subheader("🗺️ Priority Levels by Province")
+province_avg = filtered_df.groupby('Province')['Priority'].mean().sort_values(ascending=False)
+st.bar_chart(province_avg, color='#ff6b6b')
+st.caption("💡 Higher bars indicate provinces with greater resource needs")
+
+# Key insight box
+if len(province_avg) > 0:
+    highest_province = province_avg.index[0]
+    highest_score = province_avg.iloc[0]
+    st.info(f"📍 **{highest_province}** province has the highest average priority score ({highest_score:.1f})")
+
+st.divider()
+ 
 # School size analysis
 st.subheader("📊 School Size Distribution Analysis")
 col1, col2 = st.columns(2)
@@ -284,6 +331,8 @@ with col1:
 with col2:
     # Overcrowded locations analysis
     st.subheader("Location Analysis")
+    st.markdown("*Understanding resource distribution across different locations*")
+    
     location_data = filtered_df.groupby('Location').agg({
         'Total_Students': 'sum',
         'Total_Teachers': 'sum', 
@@ -297,6 +346,25 @@ with col2:
     ax.set_ylabel('Total Teachers')
     ax.set_title('Bubble size = Number of Schools')
     st.pyplot(fig)
+    
+    # Summary of what the bubble chart represents
+    st.info("""
+    📊 **Bubble Chart Summary:**
+    - **X-axis:** Total number of students per location
+    - **Y-axis:** Total number of teachers per location  
+    - **Bubble size:** Number of schools in each location
+    - **Purpose:** Identifies locations with high student populations but potentially inadequate teacher coverage
+    - **Key insight:** Locations in the bottom-right (many students, few teachers) need urgent attention
+    """)
+    
+    # Additional insights
+    max_students_location = location_data.loc[location_data['Total_Students'].idxmax()]
+    min_ratio_location = location_data.loc[(location_data['Total_Students']/location_data['Total_Teachers']).idxmax()]
+    
+    st.caption(f"💡 **{max_students_location['Location']}** has the highest student population ({max_students_location['Total_Students']:,} students)")
+    if min_ratio_location['Location'] != max_students_location['Location']:
+        ratio = min_ratio_location['Total_Students']/min_ratio_location['Total_Teachers']
+        st.caption(f"⚠️ **{min_ratio_location['Location']}** has the highest student-teacher ratio ({ratio:.1f}:1)")
 
 st.divider()
 
@@ -324,8 +392,12 @@ with col2:
     top_sponsors = sponsor_status.nlargest(4, 'PUBLIC')
     st.bar_chart(top_sponsors, color=['#ff6b6b', '#4ecdc4'])
 
+st.divider()
+
 # Teacher shortage distribution by sponsor
 st.subheader("Teacher Shortage by Sponsor Type")
+st.markdown("*Comparing how teacher shortages vary across different school sponsor types*")
+
 fig, ax = plt.subplots(figsize=(12, 6))
 sponsor_teacher_data = []
 sponsor_labels = []
@@ -343,6 +415,43 @@ plt.tight_layout()
 st.pyplot(fig)
 
 st.divider()
+
+# Box plot summary and insights
+st.info("""
+📊 **Box Plot Summary:**
+- **Each box:** Represents the distribution of teacher shortages for schools under each sponsor type
+- **Box components:**
+  - **Center line:** Median teacher shortage
+  - **Box edges:** 25th and 75th percentiles (middle 50% of schools)
+  - **Whiskers:** Extend to show the range of typical values
+  - **Outliers:** Individual points beyond whiskers (schools with extreme shortages)
+- **Purpose:** Compare which sponsor types have more consistent vs. variable teacher needs
+- **Key insight:** Taller boxes indicate more variability in teacher shortages within that sponsor type
+""")
+
+# Additional insights based on the data
+col1, col2 = st.columns(2)
+
+with col1:
+    # Calculate median shortages for each sponsor
+    sponsor_medians = {}
+    for i, sponsor in enumerate(filtered_df['SchSponsor'].value_counts().head(5).index):
+        data = filtered_df[filtered_df['SchSponsor'] == sponsor]['Extra_Teachers_Required']
+        sponsor_medians[sponsor] = data.median()
+    
+    highest_median_sponsor = max(sponsor_medians, key=sponsor_medians.get)
+    st.caption(f"📈 **{highest_median_sponsor}** sponsored schools have the highest median teacher shortage ({sponsor_medians[highest_median_sponsor]:.1f} teachers)")
+
+with col2:
+    # Find sponsor with most outliers (high variance)
+    sponsor_variance = {}
+    for sponsor in filtered_df['SchSponsor'].value_counts().head(5).index:
+        data = filtered_df[filtered_df['SchSponsor'] == sponsor]['Extra_Teachers_Required']
+        sponsor_variance[sponsor] = data.var()
+    
+    highest_variance_sponsor = max(sponsor_variance, key=sponsor_variance.get)
+    st.caption(f"📊 **{highest_variance_sponsor}** sponsored schools show the most variation in teacher needs (indicating mixed resource levels)")
+
 
 # SECTION 5: CRITICAL SCHOOLS
 st.markdown('<a name="critical-schools"></a>', unsafe_allow_html=True)
