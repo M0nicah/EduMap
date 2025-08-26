@@ -24,7 +24,7 @@ st.divider()
 
 @st.cache_data
 def load_data():
-    df = pd.read_csv('EduMap_FINAL.csv')
+    df = pd.read_csv('edumap_final.csv')
     return df
 
 df = load_data()
@@ -231,6 +231,33 @@ resource_by_district = filtered_df.groupby('District').agg({
 resource_by_district.columns = ['Teachers', 'Toilets', 'Classrooms']
 st.bar_chart(resource_by_district, color=['#ff6b6b', '#4ecdc4', '#45b7d1'])
 
+st.info("""
+📊 **Resource Needs by District Guide:**
+- **Purpose:** Shows the top 10 districts with highest combined resource shortages
+- **Chart Components:**
+  - **Red bars:** Teacher shortages - immediate staffing needs
+  - **Teal bars:** Toilet shortages - sanitation infrastructure needs  
+  - **Blue bars:** Classroom shortages - physical infrastructure needs
+- **Key Insights:**
+  - Districts with tall red bars need urgent teacher deployment
+  - Districts with tall teal bars need sanitation infrastructure projects
+  - Districts with tall blue bars need classroom construction programs
+- **Action Planning:** Use this to allocate budgets and resources by district priority
+- **Strategic Value:** Enables district-level resource planning and intervention targeting
+""")
+
+# District insights
+col1, col2 = st.columns(2)
+with col1:
+    top_teacher_district = resource_by_district.index[0]
+    top_teacher_need = resource_by_district['Teachers'].iloc[0]
+    st.caption(f"🚨 **{top_teacher_district}** district has the highest teacher shortage ({top_teacher_need:.0f} teachers needed)")
+
+with col2:
+    top_toilet_district = resource_by_district['Toilets'].idxmax()
+    top_toilet_need = resource_by_district.loc[top_toilet_district, 'Toilets']
+    st.caption(f"🚽 **{top_toilet_district}** district has the highest toilet shortage ({top_toilet_need:.0f} toilets needed)")
+
 st.divider()
 
 # SECTION 5: DETAILED ANALYSIS
@@ -339,23 +366,11 @@ with col2:
         'School_ID': 'count'
     }).reset_index()
     
-    fig, ax = plt.subplots(figsize=(8, 6))
-    scatter = ax.scatter(location_data['Total_Students'], location_data['Total_Teachers'], 
-                        s=location_data['School_ID']*10, alpha=0.6, color='#ff9999')
-    ax.set_xlabel('Total Students')
-    ax.set_ylabel('Total Teachers')
-    ax.set_title('Bubble size = Number of Schools')
-    st.pyplot(fig)
+    # Top locations by student population
+    top_student_locations = location_data.nlargest(10, 'Total_Students')
+    st.bar_chart(top_student_locations.set_index('Location')['Total_Students'], color='#ff9999')
     
-    # Summary of what the bubble chart represents
-    st.info("""
-    📊 **Bubble Chart Summary:**
-    - **X-axis:** Total number of students per location
-    - **Y-axis:** Total number of teachers per location  
-    - **Bubble size:** Number of schools in each location
-    - **Purpose:** Identifies locations with high student populations but potentially inadequate teacher coverage
-    - **Key insight:** Locations in the bottom-right (many students, few teachers) need urgent attention
-    """)
+   
     
     # Additional insights
     max_students_location = location_data.loc[location_data['Total_Students'].idxmax()]
@@ -398,36 +413,21 @@ st.divider()
 st.subheader("Teacher Shortage by Sponsor Type")
 st.markdown("*Comparing how teacher shortages vary across different school sponsor types*")
 
-fig, ax = plt.subplots(figsize=(12, 6))
-sponsor_teacher_data = []
-sponsor_labels = []
-
+# Teacher shortage by sponsor type - simplified view
+sponsor_shortage_summary = []
 for sponsor in filtered_df['SchSponsor'].value_counts().head(5).index:
     data = filtered_df[filtered_df['SchSponsor'] == sponsor]['Extra_Teachers_Required']
-    sponsor_teacher_data.append(data)
-    sponsor_labels.append(sponsor[:15] + '...' if len(sponsor) > 15 else sponsor)
+    sponsor_shortage_summary.append({
+        'Sponsor': sponsor[:20] + '...' if len(sponsor) > 20 else sponsor,
+        'Avg_Shortage': data.mean(),
+        'Total_Shortage': data.sum()
+    })
 
-ax.boxplot(sponsor_teacher_data, labels=sponsor_labels)
-ax.set_ylabel('Extra Teachers Required')
-ax.set_title('Distribution of Teacher Shortages')
-plt.xticks(rotation=45, ha='right')
-plt.tight_layout()
-st.pyplot(fig)
+sponsor_df = pd.DataFrame(sponsor_shortage_summary)
+st.bar_chart(sponsor_df.set_index('Sponsor')['Total_Shortage'], color='#4ecdc4')
 
 st.divider()
 
-# Box plot summary and insights
-st.info("""
-📊 **Box Plot Summary:**
-- **Each box:** Represents the distribution of teacher shortages for schools under each sponsor type
-- **Box components:**
-  - **Center line:** Median teacher shortage
-  - **Box edges:** 25th and 75th percentiles (middle 50% of schools)
-  - **Whiskers:** Extend to show the range of typical values
-  - **Outliers:** Individual points beyond whiskers (schools with extreme shortages)
-- **Purpose:** Compare which sponsor types have more consistent vs. variable teacher needs
-- **Key insight:** Taller boxes indicate more variability in teacher shortages within that sponsor type
-""")
 
 # Additional insights based on the data
 col1, col2 = st.columns(2)
