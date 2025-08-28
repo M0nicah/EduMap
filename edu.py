@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import plotly.express as px
+from sklearn.preprocessing import MinMaxScaler
 
 # Page config
 st.set_page_config(page_title="EduMap Kenya", page_icon="📚", layout="wide")
@@ -19,6 +20,7 @@ st.markdown("""
 - [🎯 Priority Analysis](#priority-analysis)
 - [🗺️ Geographic Insights](#geographic-insights)
 - [📈 Detailed Analysis](#detailed-analysis)
+- [🔍 Smart Filters](#smart-filters)
 """)
 st.divider()
 
@@ -35,16 +37,69 @@ df = df[df['Province'].str.strip() != '']
 df = df[df['SchSponsor'].str.strip() != '']
 df = df[df['District'].str.strip() != '']
 df = df[df['Province'] != 'Central']
-df = df[df['SchSponsor'] != 'PRIVATE INDIVIDUAL']
+
+# Calculate advanced metrics
+df['Students_per_Teacher'] = df['Total_Students'] / df['Total_Teachers']
+df['Students_per_Toilet'] = df['Total_Students'] / df['toilets']
+df['Students_per_Class'] = df['Total_Students'] / df['classes']
+
+# Replace infinities with NaN and then fill with max values
+df.replace([np.inf, -np.inf], np.nan, inplace=True)
+for col in ['Students_per_Teacher', 'Students_per_Toilet', 'Students_per_Class']:
+    max_val = df[col].max()
+    df[col].fillna(max_val, inplace=True)
+
+# Calculate priority score with multiple factors
+scaler = MinMaxScaler()
+priority_factors = ['Extra_Teachers_Required', 'extra_toilets_required', 'extra_classes_required', 
+                   'Students_per_Teacher', 'Students_per_Toilet']
+df[priority_factors] = scaler.fit_transform(df[priority_factors])
+df['Priority_Score'] = (df['Extra_Teachers_Required'] * 0.4 + 
+                       df['extra_toilets_required'] * 0.3 + 
+                       df['extra_classes_required'] * 0.2 + 
+                       df['Students_per_Teacher'] * 0.05 +
+                       df['Students_per_Toilet'] * 0.05)
+
+# Categorize schools by priority level
+df['Priority_Level'] = pd.qcut(df['Priority_Score'], q=4, labels=['Low', 'Medium', 'High', 'Critical'])
 
 # SIDEBAR FILTERS
-st.sidebar.header("🔍 Filters")
+st.sidebar.header("🔍 Basic Filters")
 provinces = st.sidebar.multiselect("Select Provinces", df['Province'].unique(), default=[])
 status = st.sidebar.multiselect("School Status", df['Status'].unique(), default=[])
 sponsors = st.sidebar.multiselect("School Sponsor Type", df['SchSponsor'].unique(), default=[])
 districts = st.sidebar.multiselect("Select Districts", df['District'].unique(), default=[])
-critical_only = st.sidebar.checkbox("Critical Schools Only (15+ teachers needed)")
 min_students = st.sidebar.slider("Minimum Students", 0, int(df['Total_Students'].max()), 0)
+
+# SMART FILTERS SECTION
+st.sidebar.header("🎯 Smart Filters")
+priority_level = st.sidebar.multiselect("Priority Level", df['Priority_Level'].unique(), default=[])
+
+# Resource shortage filters
+st.sidebar.subheader("Resource Shortage Filters")
+teacher_shortage = st.sidebar.slider("Teacher Shortage Range", 
+                                    int(df['Extra_Teachers_Required'].min()), 
+                                    int(df['Extra_Teachers_Required'].max()), 
+                                    (0, int(df['Extra_Teachers_Required'].max())))
+toilet_shortage = st.sidebar.slider("Toilet Shortage Range", 
+                                   int(df['extra_toilets_required'].min()), 
+                                   int(df['extra_toilets_required'].max()), 
+                                   (0, int(df['extra_toilets_required'].max())))
+classroom_shortage = st.sidebar.slider("Classroom Shortage Range", 
+                                      int(df['extra_classes_required'].min()), 
+                                      int(df['extra_classes_required'].max()), 
+                                      (0, int(df['extra_classes_required'].max())))
+
+# Ratio filters
+st.sidebar.subheader("Ratio Thresholds")
+teacher_ratio = st.sidebar.slider("Max Student-Teacher Ratio", 
+                                  int(df['Students_per_Teacher'].min()), 
+                                  int(df['Students_per_Teacher'].max()), 
+                                  int(df['Students_per_Teacher'].max()))
+toilet_ratio = st.sidebar.slider("Max Student-Toilet Ratio", 
+                                int(df['Students_per_Toilet'].min()), 
+                                int(df['Students_per_Toilet'].max()), 
+                                int(df['Students_per_Toilet'].max()))
 
 # Clear filters button
 if st.sidebar.button("🗑️ Clear All Filters"):
@@ -52,7 +107,12 @@ if st.sidebar.button("🗑️ Clear All Filters"):
     status = []
     sponsors = []
     districts = []
-    critical_only = False
+    priority_level = []
+    teacher_shortage = (0, int(df['Extra_Teachers_Required'].max()))
+    toilet_shortage = (0, int(df['extra_toilets_required'].max()))
+    classroom_shortage = (0, int(df['extra_classes_required'].max()))
+    teacher_ratio = int(df['Students_per_Teacher'].max())
+    toilet_ratio = int(df['Students_per_Toilet'].max())
     min_students = 0
     st.experimental_rerun()
 
@@ -62,15 +122,30 @@ if provinces: active_filters.append(f"Provinces: {len(provinces)}")
 if status: active_filters.append(f"Status: {len(status)}")
 if sponsors: active_filters.append(f"Sponsors: {len(sponsors)}")
 if districts: active_filters.append(f"Districts: {len(districts)}")
-if critical_only: active_filters.append("Critical Schools Only")
+if priority_level: active_filters.append(f"Priority: {len(priority_level)} levels")
+if teacher_shortage != (0, int(df['Extra_Teachers_Required'].max())): 
+    active_filters.append(f"Teacher Shortage: {teacher_shortage[0]}-{teacher_shortage[1]}")
+if toilet_shortage != (0, int(df['extra_toilets_required'].max())): 
+    active_filters.append(f"Toilet Shortage: {toilet_shortage[0]}-{toilet_shortage[1]}")
+if classroom_shortage != (0, int(df['extra_classes_required'].max())): 
+    active_filters.append(f"Classroom Shortage: {classroom_shortage[0]}-{classroom_shortage[1]}")
+if teacher_ratio < int(df['Students_per_Teacher'].max()): 
+    active_filters.append(f"Max Teacher Ratio: {teacher_ratio}")
+if toilet_ratio < int(df['Students_per_Toilet'].max()): 
+    active_filters.append(f"Max Toilet Ratio: {toilet_ratio}")
 if min_students > 0: active_filters.append(f"Min Students: {min_students}")
 
 if active_filters:
     st.sidebar.info(f"Active filters: {', '.join(active_filters)}")
 
 # Quick buttons
-if st.sidebar.button("Public Schools Only"):
-    status = ['PUBLIC']
+col1, col2 = st.sidebar.columns(2)
+with col1:
+    if st.button("Public Schools Only"):
+        status = ['PUBLIC']
+with col2:
+    if st.button("Critical Priority"):
+        priority_level = ['Critical']
 
 # District comparison in sidebar
 st.sidebar.header("⚖️ Compare Districts")
@@ -84,11 +159,84 @@ if provinces:
     filtered_df = filtered_df[filtered_df['Province'].isin(provinces)]
 if status:
     filtered_df = filtered_df[filtered_df['Status'].isin(status)]
+if sponsors:
+    filtered_df = filtered_df[filtered_df['SchSponsor'].isin(sponsors)]
+if districts:
+    filtered_df = filtered_df[filtered_df['District'].isin(districts)]
+if priority_level:
+    filtered_df = filtered_df[filtered_df['Priority_Level'].isin(priority_level)]
 if min_students > 0:
     filtered_df = filtered_df[filtered_df['Total_Students'] >= min_students]
 
-# Priority score
-filtered_df['Priority'] = filtered_df['Extra_Teachers_Required'] + filtered_df['extra_toilets_required']
+# Apply smart filters
+filtered_df = filtered_df[
+    (filtered_df['Extra_Teachers_Required'] >= teacher_shortage[0]) & 
+    (filtered_df['Extra_Teachers_Required'] <= teacher_shortage[1]) &
+    (filtered_df['extra_toilets_required'] >= toilet_shortage[0]) & 
+    (filtered_df['extra_toilets_required'] <= toilet_shortage[1]) &
+    (filtered_df['extra_classes_required'] >= classroom_shortage[0]) & 
+    (filtered_df['extra_classes_required'] <= classroom_shortage[1]) &
+    (filtered_df['Students_per_Teacher'] <= teacher_ratio) &
+    (filtered_df['Students_per_Toilet'] <= toilet_ratio)
+]
+
+# NEW SECTION: SMART FILTERS OVERVIEW
+st.markdown('<a name="smart-filters"></a>', unsafe_allow_html=True)
+st.header("🔍 Smart Filters Analysis")
+st.markdown("*Advanced filtering to identify schools with specific resource needs*")
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.metric("Filtered Schools", len(filtered_df), 
+              f"{len(filtered_df)/len(df)*100:.1f}% of total")
+with col2:
+    avg_priority = filtered_df['Priority_Score'].mean()
+    st.metric("Average Priority Score", f"{avg_priority:.3f}")
+with col3:
+    critical_count = len(filtered_df[filtered_df['Priority_Level'] == 'Critical'])
+    st.metric("Critical Priority Schools", critical_count)
+
+# Priority distribution
+st.subheader("📊 Priority Distribution in Filtered Results")
+priority_dist = filtered_df['Priority_Level'].value_counts()
+fig, ax = plt.subplots(figsize=(10, 4))
+colors = ['#4ecdc4', '#45b7d1', '#ffc44d', '#ff6b6b']
+priority_dist.plot(kind='bar', color=colors, ax=ax)
+ax.set_title('Number of Schools by Priority Level')
+ax.set_ylabel('Number of Schools')
+plt.xticks(rotation=0)
+st.pyplot(fig)
+
+# Resource need correlations
+st.subheader("📈 Correlation Between Resource Needs")
+corr_data = filtered_df[['Extra_Teachers_Required', 'extra_toilets_required', 'extra_classes_required']]
+corr_matrix = corr_data.corr()
+
+fig, ax = plt.subplots(figsize=(8, 6))
+im = ax.imshow(corr_matrix, cmap='coolwarm', vmin=-1, vmax=1)
+ax.set_xticks(range(len(corr_matrix.columns)))
+ax.set_yticks(range(len(corr_matrix.columns)))
+ax.set_xticklabels(corr_matrix.columns, rotation=45)
+ax.set_yticklabels(corr_matrix.columns)
+
+# Add correlation values to each cell
+for i in range(len(corr_matrix.columns)):
+    for j in range(len(corr_matrix.columns)):
+        text = ax.text(j, i, f'{corr_matrix.iloc[i, j]:.2f}',
+                       ha="center", va="center", color="w" if abs(corr_matrix.iloc[i, j]) > 0.5 else "black")
+
+plt.colorbar(im)
+st.pyplot(fig)
+
+st.info("""
+🔍 **Correlation Insights:**
+- Values close to 1.0 indicate strong positive correlation (when one resource need increases, the other tends to increase)
+- Values close to -1.0 indicate strong negative correlation (when one resource need increases, the other tends to decrease)
+- Values near 0 indicate little to no relationship between resource needs
+""")
+
+st.divider()
 
 # SECTION 1: NATIONAL OVERVIEW
 st.markdown('<a name="national-overview"></a>', unsafe_allow_html=True)
@@ -104,7 +252,7 @@ national_avg_ratio = filtered_df['Students_per_Teacher'].mean()
 
 norm_ratio = 40
 teachers_needed = total_students / norm_ratio
-extra_teachers = teachers_needed - total_teachers
+extra_teachers = max(0, teachers_needed - total_teachers)
 
 with col1:
     st.metric("🏫 Total Schools", f"{total_schools:,}", help="Total number of schools in dataset")
@@ -127,7 +275,7 @@ with col2:
 
 st.divider()
 
-
+# ... [The rest of your existing sections with the filtered_df]
 
 # SECTION 2: GEOGRAPHIC INSIGHTS
 st.markdown('<a name="geographic-insights"></a>', unsafe_allow_html=True)
@@ -161,9 +309,6 @@ with col2:
     st.bar_chart(top_locations.set_index('Location'), color="#4ecdc4")
     st.caption("💡 These locations have the highest total student enrollment")
 
-st.divider()
-
-
 # District comparison results
 if d1 and d2 and d1 != d2:
     st.subheader(f"⚖️ District Comparison: {d1} vs {d2}")
@@ -181,6 +326,7 @@ if d1 and d2 and d1 != d2:
     
     st.caption("💡 Compare two districts to see which needs more resources")
 
+st.divider()
 
 # RESOURCE GAP ANALYSIS
 st.header("📈 Resource Gap Analysis")
@@ -270,6 +416,25 @@ with col2:
 
 st.divider()
 
+# SECTION 3: PRIORITY ANALYSIS  
+st.markdown('<a name="priority-analysis"></a>', unsafe_allow_html=True)
+st.header("🎯 Priority Analysis")
+st.markdown("*Understanding which province need the most help*")
+
+# Province priority overview
+st.subheader("🗺️ Priority Levels by Province")
+province_avg = filtered_df.groupby('Province')['Priority_Score'].mean().sort_values(ascending=False)
+st.bar_chart(province_avg, color='#ff6b6b')
+st.caption("💡 Higher bars indicate provinces with greater resource needs")
+
+# Key insight box
+if len(province_avg) > 0:
+    highest_province = province_avg.index[0]
+    highest_score = province_avg.iloc[0]
+    st.info(f"📍 **{highest_province}** province has the highest average priority score ({highest_score:.3f})")
+
+st.divider()
+
 # SECTION 5: DETAILED ANALYSIS
 st.markdown('<a name="detailed-analysis"></a>', unsafe_allow_html=True)
 st.header("📈 Detailed Resource Analysis")
@@ -281,7 +446,7 @@ tab1, tab2, tab3 = st.tabs(["👨‍🏫 Teachers", "🚽 Toilets", "🏫 Classr
 
 with tab1:
     st.markdown("*Schools with the highest teacher shortages*")
-    teacher_shortage = filtered_df.nlargest(10, 'Extra_Teachers_Required')[['Name_of_Sc', 'District', 'Extra_Teachers_Required']]
+    teacher_shortage = filtered_df.nlargest(10, 'Extra_Teachers_Required')[['Name_of_Sc', 'District', 'Extra_Teachers_Required', 'Priority_Level']]
     st.dataframe(teacher_shortage, use_container_width=True)
     
     avg_shortage = filtered_df['Extra_Teachers_Required'].mean()
@@ -289,7 +454,7 @@ with tab1:
 
 with tab2:
     st.markdown("*Schools with the highest toilet shortages*")
-    toilet_shortage = filtered_df.nlargest(10, 'extra_toilets_required')[['Name_of_Sc', 'District', 'extra_toilets_required']]
+    toilet_shortage = filtered_df.nlargest(10, 'extra_toilets_required')[['Name_of_Sc', 'District', 'extra_toilets_required', 'Priority_Level']]
     st.dataframe(toilet_shortage, use_container_width=True)
     
     schools_needing_toilets = len(filtered_df[filtered_df['extra_toilets_required'] > 0])
@@ -297,31 +462,12 @@ with tab2:
 
 with tab3:
     st.markdown("*Schools with the highest classroom shortages*")
-    classroom_shortage = filtered_df.nlargest(10, 'extra_classes_required')[['Name_of_Sc', 'District', 'extra_classes_required']]
+    classroom_shortage = filtered_df.nlargest(10, 'extra_classes_required')[['Name_of_Sc', 'District', 'extra_classes_required', 'Priority_Level']]
     st.dataframe(classroom_shortage, use_container_width=True)
     
     schools_needing_classes = len(filtered_df[filtered_df['extra_classes_required'] > 0])
     st.warning(f"🏫 {schools_needing_classes} schools need additional classrooms")
 
-# SECTION 3: PRIORITY ANALYSIS  
-st.markdown('<a name="priority-analysis"></a>', unsafe_allow_html=True)
-st.header("🎯 Priority Analysis")
-st.markdown("*Understanding which province need the most help*")
-
-# Province priority overview
-st.subheader("🗺️ Priority Levels by Province")
-province_avg = filtered_df.groupby('Province')['Priority'].mean().sort_values(ascending=False)
-st.bar_chart(province_avg, color='#ff6b6b')
-st.caption("💡 Higher bars indicate provinces with greater resource needs")
-
-# Key insight box
-if len(province_avg) > 0:
-    highest_province = province_avg.index[0]
-    highest_score = province_avg.iloc[0]
-    st.info(f"📍 **{highest_province}** province has the highest average priority score ({highest_score:.1f})")
-
-st.divider()
- 
 # School size analysis
 st.subheader("📊 School Size Distribution Analysis")
 col1, col2 = st.columns(2)
@@ -352,135 +498,24 @@ with col2:
 
 st.divider()
 
-
-
-# GEOGRAPHIC DISTRIBUTION
-st.header("🗺️ Geographic Distribution")
-
-col1, col2 = st.columns(2)
-
-with col1:
-    # Provincial distribution
-    province_summary = filtered_df.groupby(['Province', 'Status']).size().unstack(fill_value=0)
-    st.subheader("Schools by Province")
-    st.bar_chart(province_summary, color=['#ff6b6b', '#4ecdc4'])
-
-with col2:
-    # Overcrowded locations analysis
-    st.subheader("Location Analysis")
-    st.markdown("*Understanding resource distribution across different locations*")
-    
-    location_data = filtered_df.groupby('Location').agg({
-        'Total_Students': 'sum',
-        'Total_Teachers': 'sum', 
-        'School_ID': 'count'
-    }).reset_index()
-    
-    # Top locations by student population
-    top_student_locations = location_data.nlargest(10, 'Total_Students')
-    st.bar_chart(top_student_locations.set_index('Location')['Total_Students'], color='#ff9999')
-    
-   
-    
-    # Additional insights
-    max_students_location = location_data.loc[location_data['Total_Students'].idxmax()]
-    min_ratio_location = location_data.loc[(location_data['Total_Students']/location_data['Total_Teachers']).idxmax()]
-    
-    st.caption(f"💡 **{max_students_location['Location']}** has the highest student population ({max_students_location['Total_Students']:,} students)")
-    if min_ratio_location['Location'] != max_students_location['Location']:
-        ratio = min_ratio_location['Total_Students']/min_ratio_location['Total_Teachers']
-        st.caption(f"⚠️ **{min_ratio_location['Location']}** has the highest student-teacher ratio ({ratio:.1f}:1)")
-
-st.divider()
-
-# SCHOOL SPONSOR ANALYSIS
-st.header("🏛️ School Sponsor Analysis")
-
-col1, col2 = st.columns(2)
-
-with col1:
-    # Sponsor distribution donut chart
-    st.subheader("Top 5 Sponsors")
-    sponsor_dist = filtered_df.groupby('SchSponsor').size().sort_values(ascending=False).head(5)
-    
-    fig, ax = plt.subplots(figsize=(8, 6))
-    wedges, texts, autotexts = ax.pie(sponsor_dist.values, labels=sponsor_dist.index, 
-                                     autopct='%1.1f%%', colors=['#ff6b6b', '#4ecdc4', '#45b7d1', '#ffa500', '#98d8c8'])
-    circle = plt.Circle((0,0), 0.4, fc='white')
-    ax.add_patch(circle)
-    st.pyplot(fig)
-
-with col2:
-    # Public vs Private by sponsor
-    st.subheader("Public vs Private by Sponsor")
-    sponsor_status = filtered_df.groupby(['SchSponsor', 'Status']).size().unstack(fill_value=0)
-    top_sponsors = sponsor_status.nlargest(4, 'PUBLIC')
-    st.bar_chart(top_sponsors, color=['#ff6b6b', '#4ecdc4'])
-
-st.divider()
-
-# Teacher shortage distribution by sponsor
-st.subheader("Teacher Shortage by Sponsor Type")
-st.markdown("*Comparing how teacher shortages vary across different school sponsor types*")
-
-# Teacher shortage by sponsor type - simplified view
-sponsor_shortage_summary = []
-for sponsor in filtered_df['SchSponsor'].value_counts().head(5).index:
-    data = filtered_df[filtered_df['SchSponsor'] == sponsor]['Extra_Teachers_Required']
-    sponsor_shortage_summary.append({
-        'Sponsor': sponsor[:20] + '...' if len(sponsor) > 20 else sponsor,
-        'Avg_Shortage': data.mean(),
-        'Total_Shortage': data.sum()
-    })
-
-sponsor_df = pd.DataFrame(sponsor_shortage_summary)
-st.bar_chart(sponsor_df.set_index('Sponsor')['Total_Shortage'], color='#4ecdc4')
-
-st.divider()
-
-
-# Additional insights based on the data
-col1, col2 = st.columns(2)
-
-with col1:
-    # Calculate median shortages for each sponsor
-    sponsor_medians = {}
-    for i, sponsor in enumerate(filtered_df['SchSponsor'].value_counts().head(5).index):
-        data = filtered_df[filtered_df['SchSponsor'] == sponsor]['Extra_Teachers_Required']
-        sponsor_medians[sponsor] = data.median()
-    
-    highest_median_sponsor = max(sponsor_medians, key=sponsor_medians.get)
-    st.caption(f"📈 **{highest_median_sponsor}** sponsored schools have the highest median teacher shortage ({sponsor_medians[highest_median_sponsor]:.1f} teachers)")
-
-with col2:
-    # Find sponsor with most outliers (high variance)
-    sponsor_variance = {}
-    for sponsor in filtered_df['SchSponsor'].value_counts().head(5).index:
-        data = filtered_df[filtered_df['SchSponsor'] == sponsor]['Extra_Teachers_Required']
-        sponsor_variance[sponsor] = data.var()
-    
-    highest_variance_sponsor = max(sponsor_variance, key=sponsor_variance.get)
-    st.caption(f"📊 **{highest_variance_sponsor}** sponsored schools show the most variation in teacher needs (indicating mixed resource levels)")
-
-
 # SECTION 5: CRITICAL SCHOOLS
 st.markdown('<a name="critical-schools"></a>', unsafe_allow_html=True)
 st.header("🚨 Critical Schools Needing Immediate Attention")
 st.markdown("*Schools with the highest resource shortages that require urgent intervention*")
 
 # Critical alert
-critical = len(filtered_df[filtered_df['Extra_Teachers_Required'] > 15])
+critical = len(filtered_df[filtered_df['Priority_Level'] == 'Critical'])
 if critical > 0:
-    st.error(f"🚨 **URGENT:** {critical} schools need 15+ teachers immediately!")
+    st.error(f"🚨 **URGENT:** {critical} schools are at critical priority level!")
 else:
-    st.success("✅ No schools in critical teacher shortage state")
-
+    st.success("✅ No schools in critical priority state")
 
 # Most critical schools
 st.subheader("🎯 Top 10 Most Critical Schools")
-priority = filtered_df.nlargest(10, 'Priority')[['Name_of_Sc', 'District', 'Priority', 'Extra_Teachers_Required', 'extra_toilets_required']]
+priority = filtered_df.nlargest(10, 'Priority_Score')[['Name_of_Sc', 'District', 'Priority_Score', 'Priority_Level', 
+                                                     'Extra_Teachers_Required', 'extra_toilets_required']]
 st.dataframe(priority, use_container_width=True)
-st.caption("💡 These schools have the highest combined resource needs and should be prioritized for aid")
+st.caption("💡 These schools have the highest priority scores and should be prioritized for aid")
 
 st.divider()
 
