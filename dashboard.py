@@ -88,7 +88,7 @@ if min_students > 0:
     filtered_df = filtered_df[filtered_df['Total_Students'] >= min_students]
 
 # Priority score
-filtered_df['Priority'] = filtered_df['Extra_Teachers_Required'] + filtered_df['extra_toilets_required']
+filtered_df['Priority'] = filtered_df['Extra_Teachers_Required'] + filtered_df['extra_toilets_required'] + filtered_df['extra_classes_required']
 
 # SECTION 1: NATIONAL OVERVIEW
 st.markdown('<a name="national-overview"></a>', unsafe_allow_html=True)
@@ -478,7 +478,7 @@ else:
 
 # Most critical schools
 st.subheader("🎯 Top 10 Most Critical Schools")
-priority = filtered_df.nlargest(10, 'Priority')[['Name_of_Sc', 'District', 'Priority', 'Extra_Teachers_Required', 'extra_toilets_required']]
+priority = filtered_df.nlargest(10, 'Priority')[['Name_of_Sc', 'District', 'Priority', 'Extra_Teachers_Required', 'extra_toilets_required', 'extra_classes_required']]
 st.dataframe(priority, use_container_width=True)
 st.caption("💡 These schools have the highest combined resource needs and should be prioritized for aid")
 
